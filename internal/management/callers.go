@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/yuluo688/credit-manager/internal/money"
 	"github.com/yuluo688/credit-manager/internal/service"
@@ -82,4 +83,34 @@ func setEnabled(ctx context.Context, svc *service.Service, body []byte) (plugina
 		return jsonErr(http.StatusBadRequest, err.Error()), nil
 	}
 	return jsonOK(map[string]any{"caller_id": req.CallerID, "enabled": req.Enabled}), nil
+}
+
+func updateCaller(ctx context.Context, svc *service.Service, body []byte) (pluginapi.ManagementResponse, error) {
+	var req struct {
+		CallerID              string  `json:"caller_id"`
+		QuotaMicroUSD         *int64  `json:"quota_micro_usd"`
+		MaxConcurrentRequests *int64  `json:"max_concurrent_requests"`
+		RPMLimit              *int64  `json:"rpm_limit"`
+		TPMLimit              *int64  `json:"tpm_limit"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		return jsonErr(http.StatusBadRequest, "invalid json"), nil
+	}
+	if strings.TrimSpace(req.CallerID) == "" {
+		return jsonErr(http.StatusBadRequest, "caller_id is required"), nil
+	}
+	update := store.CallerUpdate{
+		MaxConcurrentRequests: req.MaxConcurrentRequests,
+		RPMLimit:              req.RPMLimit,
+		TPMLimit:              req.TPMLimit,
+	}
+	if req.QuotaMicroUSD != nil {
+		quota := money.MicroUSD(*req.QuotaMicroUSD)
+		update.QuotaMicroUSD = &quota
+	}
+	caller, err := svc.Store().UpdateCaller(ctx, req.CallerID, update)
+	if err != nil {
+		return jsonErr(http.StatusBadRequest, err.Error()), nil
+	}
+	return jsonOK(callerView(caller)), nil
 }

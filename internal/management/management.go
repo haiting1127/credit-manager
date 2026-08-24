@@ -22,6 +22,7 @@ func Routes() []pluginapi.ManagementRoute {
 		{http.MethodPost, "credit-manager/callers"},
 		{http.MethodGet, "credit-manager/callers"},
 		{http.MethodPost, "credit-manager/callers/enabled"},
+		{http.MethodPost, "credit-manager/callers/update"},
 		{http.MethodPost, "credit-manager/keys"},
 		{http.MethodGet, "credit-manager/keys"},
 		{http.MethodPost, "credit-manager/keys/update"},
@@ -119,6 +120,8 @@ func Handle(ctx context.Context, req pluginapi.ManagementRequest) (pluginapi.Man
 		return listCallers(ctx, svc, req.Query)
 	case req.Method == http.MethodPost && path == "credit-manager/callers/enabled":
 		return setEnabled(ctx, svc, req.Body)
+	case req.Method == http.MethodPost && path == "credit-manager/callers/update":
+		return updateCaller(ctx, svc, req.Body)
 	case req.Method == http.MethodPost && path == "credit-manager/keys":
 		return createKey(ctx, svc, req.Body)
 	case req.Method == http.MethodGet && path == "credit-manager/keys":

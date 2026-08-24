@@ -145,6 +145,59 @@
       </section>
     </div>
 
+    <div class="modal-backdrop" id="callerModal" aria-hidden="true">
+      <section class="connection-modal key-modal" role="dialog" aria-modal="true" aria-labelledby="callerModalTitle">
+        <div class="modal-header">
+          <div><h2 class="panel-title" id="callerModalTitle">添加归属</h2><p class="hint">归属（caller）的额度与限速在其名下所有 Key 之间共享。留空或 0 = 不限制。</p></div>
+          <button class="modal-close" id="btnCloseCallerModal" aria-label="关闭归属弹窗">×</button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="callerModalMode" value="create"/>
+          <input type="hidden" id="callerModalOriginalId"/>
+          <div class="connection-form">
+            <div class="modal-section">
+              <p class="modal-section-title">基础信息<span>标识与总额度</span></p>
+              <div class="form-grid-2">
+                <label>归属 ID
+                  <input id="callerModalId" placeholder="zhangsan / team-a" spellcheck="false"/>
+                </label>
+                <label>显示名称
+                  <input id="callerModalDisplayName" placeholder="张三 / A 组"/>
+                </label>
+                <label>总额度（USD，跨 Key 共享）
+                  <input id="callerModalQuotaUSD" type="number" step="0.01" min="0" placeholder="0 或留空 = 不限制"/>
+                </label>
+              </div>
+            </div>
+            <div class="modal-section">
+              <p class="modal-section-title">限速（跨 Key 共享）<span>速率与并发</span></p>
+              <div class="form-grid-2">
+                <label>RPM（每分钟请求数）
+                  <input id="callerModalRPM" type="number" step="1" min="0" placeholder="0 或留空 = 不限制"/>
+                </label>
+                <label>TPM（每分钟 Token 数）
+                  <input id="callerModalTPM" type="number" step="1000" min="0" placeholder="0 或留空 = 不限制"/>
+                </label>
+                <label>最大并发请求数
+                  <input id="callerModalMaxConcurrent" type="number" step="1" min="0" placeholder="0 或留空 = 不限制"/>
+                </label>
+                <label>启用
+                  <select id="callerModalEnabled">
+                    <option value="true">启用</option>
+                    <option value="false">禁用</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="modal-actions">
+              <button class="btn ghost" id="btnCancelCallerModal">取消</button>
+              <button class="btn primary" id="btnSubmitCallerModal">创建归属</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
     <div class="modal-backdrop" id="priceModal" aria-hidden="true">
       <section class="connection-modal price-modal" role="dialog" aria-modal="true" aria-labelledby="priceModalTitle">
         <div class="modal-header">
@@ -241,6 +294,7 @@
       <div class="tabs" id="tabs">
         <button class="tab active" data-tab="overview">概览</button>
         <button class="tab" data-tab="keys">Key 管理</button>
+        <button class="tab" data-tab="callers">归属管理</button>
         <button class="tab" data-tab="pricing">模型与价格</button>
         <button class="tab" data-tab="usage">使用统计</button>
         <button class="tab" data-tab="auth-quotas">认证额度</button>
@@ -382,6 +436,20 @@
     <div class="card keys-card">
       <div class="section-heading"><h2 class="panel-title">已有 Key</h2><span class="muted" id="keysCount">额度与状态一览</span></div>
       <div id="keysTable"></div>
+    </div>
+  </section>
+
+  <section id="tab-callers" class="tabpane hidden">
+    <div class="page-intro">
+      <div><h2>归属管理</h2><p>归属（caller）代表一个“人”或团队：额度、RPM/TPM/并发在其名下所有 Key 之间共享。</p></div>
+      <div class="actions">
+        <span class="badge ok">跨 Key 共享限额</span>
+        <button class="btn primary" id="btnOpenCreateCaller">添加归属</button>
+      </div>
+    </div>
+    <div class="card keys-card">
+      <div class="section-heading"><h2 class="panel-title">已有归属</h2><span class="muted" id="callersCount">额度与限速一览</span></div>
+      <div id="callersTable"></div>
     </div>
   </section>
 

@@ -891,6 +891,10 @@
       await loadAuthQuotas();
       return;
     }
+    if (tab === 'callers') {
+      await loadCallers();
+      return;
+    }
     if (tab === 'pricing') {
       await loadOverviewBundle();
       if (seq !== state.tabLoadSeq) return;
@@ -1196,7 +1200,7 @@
 
   function renderDisconnectedTabStates() {
     const content = chartEmptyState('', true).replace('chart-empty-state', 'chart-empty-state tab-empty-state');
-    ['keysTable', 'pricingTable', 'usageByKey', 'usageByModel', 'usageRecent'].forEach(id => {
+    ['keysTable', 'callersTable', 'pricingTable', 'usageByKey', 'usageByModel', 'usageRecent'].forEach(id => {
       const target = $(id);
       if (target) target.innerHTML = content;
     });
@@ -3209,6 +3213,143 @@
   async function loadAuthQuotas() {
     renderAuthQuotas(await api('GET', 'credit-manager/auth-quotas'));
   }
+
+  // ---------- caller (归属) management ----------
+
+  async function loadCallers() {
+    const data = await api('GET', 'credit-manager/callers');
+    state.callers = (data && data.items) || [];
+    renderCallers(state.callers);
+  }
+
+  function callerLimitText(value) {
+    const n = Number(value || 0);
+    return n > 0 ? String(n) : '不限制';
+  }
+
+  function renderCallers(callers) {
+    const list = [...(callers || [])];
+    if ($('callersCount')) {
+      $('callersCount').textContent = list.length ? (list.length + ' 个归属') : '暂无归属';
+    }
+    if (!list.length) {
+      $('callersTable').innerHTML = '<div class="keys-empty empty-state"><span>还没有归属。点击右上角"添加归属"创建第一个（额度与限速在其名下所有 Key 间共享）。</span></div>';
+      return;
+    }
+    const money = (v) => formatMoney(v);
+    const quotaBlock = (c) => {
+      const quota = Number(c.quota_micro_usd || 0);
+      const used = Number(c.settled_spend_micro_usd || 0);
+      if (quota <= 0) {
+        return '<div class="quota-cell"><div class="quota-line"><strong>不限制</strong><span class="muted">限额</span></div><div class="quota-bar"><span style="width:0%"></span></div></div>';
+      }
+      const pct = Math.min(100, Math.max(0, (used / quota) * 100));
+      const tone = pct >= 90 ? 'danger' : (pct >= 70 ? 'warn' : '');
+      return '<div class="quota-cell"><div class="quota-line"><strong>'+esc(money(quota))+'</strong><span class="muted">限额</span></div><div class="quota-bar '+tone+'"><span style="width:'+pct.toFixed(1)+'%"></span></div></div>';
+    };
+    $('callersTable').innerHTML = '<div class="table-scroll"><table class="keys-table"><thead><tr><th>归属</th><th>共享额度</th><th>已用 / 剩余</th><th>限速（RPM / TPM / 并发）</th><th>状态</th><th>操作</th></tr></thead><tbody>' +
+      list.map(c => {
+        const st = c.enabled ? '<span class="badge ok">启用</span>' : '<span class="badge warn">禁用</span>';
+        const used = Number(c.settled_spend_micro_usd || 0);
+        const remaining = Number(c.remaining_micro_usd || 0);
+        const quota = Number(c.quota_micro_usd || 0);
+        const usedBlock = quota > 0
+          ? '<strong>'+esc(money(used))+'</strong><span class="muted">剩余 '+esc(money(remaining))+'</span>'
+          : '<strong>'+esc(money(used))+'</strong><span class="muted">不限额度</span>';
+        const rates = '<span class="quota-periods"><span>RPM '+esc(callerLimitText(c.rpm_limit))+'</span><span>TPM '+esc(callerLimitText(c.tpm_limit))+'</span><span>并发 '+esc(callerLimitText(c.max_concurrent_requests))+'</span></span>';
+        return '<tr>' +
+          '<td><div class="key-label"><strong>'+esc(c.display_name || c.id)+'</strong><span class="muted">'+esc(c.id)+'</span></div></td>' +
+          '<td>'+quotaBlock(c)+'</td>' +
+          '<td><div class="quota-cell">'+usedBlock+'</div></td>' +
+          '<td>'+rates+'</td>' +
+          '<td>'+st+'</td>' +
+          '<td><button class="btn soft" data-edit-caller="'+esc(c.id)+'">编辑</button></td>' +
+          '</tr>';
+      }).join('') + '</tbody></table></div>';
+    $('callersTable').querySelectorAll('[data-edit-caller]').forEach(btn => btn.addEventListener('click', () => openCallerModal('edit', btn.dataset.editCaller)));
+  }
+
+  function openCallerModal(mode, callerId) {
+    const modal = $('callerModal');
+    const caller = mode === 'edit' && state.callers ? state.callers.find(c => c.id === callerId) : null;
+    $('callerModalMode').value = mode;
+    $('callerModalOriginalId').value = callerId || '';
+    $('callerModalTitle').textContent = mode === 'edit' ? '编辑归属' : '添加归属';
+    $('btnSubmitCallerModal').textContent = mode === 'edit' ? '保存修改' : '创建归属';
+    // In edit mode the id is the primary key used by keys; keep it read-only.
+    $('callerModalId').value = caller ? caller.id : '';
+    $('callerModalId').disabled = mode === 'edit';
+    $('callerModalDisplayName').value = caller ? (caller.display_name || '') : '';
+    const usd = (micro) => {
+      const n = Number(micro || 0);
+      return n > 0 ? (n / 1e6).toString() : '';
+    };
+    $('callerModalQuotaUSD').value = caller ? usd(caller.quota_micro_usd) : '';
+    $('callerModalRPM').value = caller && Number(caller.rpm_limit) > 0 ? String(caller.rpm_limit) : '';
+    $('callerModalTPM').value = caller && Number(caller.tpm_limit) > 0 ? String(caller.tpm_limit) : '';
+    $('callerModalMaxConcurrent').value = caller && Number(caller.max_concurrent_requests) > 0 ? String(caller.max_concurrent_requests) : '';
+    $('callerModalEnabled').value = caller ? String(!!caller.enabled) : 'true';
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
+    if (mode !== 'edit') $('callerModalId').focus();
+  }
+
+  function closeCallerModal() {
+    const modal = $('callerModal');
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+
+  async function submitCallerModal() {
+    const mode = $('callerModalMode').value;
+    const id = $('callerModalId').value.trim();
+    if (!id) throw new Error('归属 ID 必填');
+    const quota = microFromUSD($('callerModalQuotaUSD').value);
+    const num = (v) => {
+      const raw = String(v || '').trim();
+      if (raw === '') return 0;
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) throw new Error('限速数值无效');
+      return Math.round(n);
+    };
+    const rpm = num($('callerModalRPM').value);
+    const tpm = num($('callerModalTPM').value);
+    const maxConcurrent = num($('callerModalMaxConcurrent').value);
+    const enabled = $('callerModalEnabled').value === 'true';
+    if (mode === 'edit') {
+      const body = {
+        caller_id: $('callerModalOriginalId').value || id,
+        quota_micro_usd: quota === null ? 0 : quota,
+        rpm_limit: rpm,
+        tpm_limit: tpm,
+        max_concurrent_requests: maxConcurrent,
+      };
+      const updated = await api('POST', 'credit-manager/callers/update', body);
+      // enabled has its own endpoint
+      const current = state.callers ? state.callers.find(c => c.id === body.caller_id) : null;
+      if (current && !!current.enabled !== enabled) {
+        await api('POST', 'credit-manager/callers/enabled', { caller_id: body.caller_id, enabled });
+      }
+      closeCallerModal();
+      flash('归属已更新：' + id, true);
+      await loadCallers();
+      return;
+    }
+    const body = {
+      id,
+      display_name: $('callerModalDisplayName').value.trim(),
+      enabled,
+      quota_micro_usd: quota === null ? 0 : quota,
+      rpm_limit: rpm,
+      tpm_limit: tpm,
+      max_concurrent_requests: maxConcurrent,
+    };
+    await api('POST', 'credit-manager/callers', body);
+    closeCallerModal();
+    flash('归属已创建：' + id, true);
+    await loadCallers();
+  }
+
   function replaceAuthQuotaItem(item) {
     const items = state.authQuotas && Array.isArray(authQuotaValue(state.authQuotas, 'items')) ? authQuotaValue(state.authQuotas, 'items') : [];
     const key = authQuotaItemKey(item);
@@ -3452,6 +3593,9 @@
   $('keyModal').addEventListener('click', event => {
     if (event.target === $('keyModal')) closeKeyModal();
   });
+  $('callerModal').addEventListener('click', event => {
+    if (event.target === $('callerModal')) closeCallerModal();
+  });
   $('btnCloseDeleteKeyModal').addEventListener('click', closeDeleteKeyModal);
   $('btnCancelDeleteKey').addEventListener('click', closeDeleteKeyModal);
   $('deleteKeyModal').addEventListener('click', event => {
@@ -3481,6 +3625,12 @@
   });
   $('btnSubmitKeyModal').addEventListener('click', async () => {
     try { await submitKeyModal(); } catch (e) { flash(e.message, false); }
+  });
+  $('btnOpenCreateCaller').addEventListener('click', () => openCallerModal('create'));
+  $('btnCloseCallerModal').addEventListener('click', closeCallerModal);
+  $('btnCancelCallerModal').addEventListener('click', closeCallerModal);
+  $('btnSubmitCallerModal').addEventListener('click', async () => {
+    try { await submitCallerModal(); } catch (e) { flash(e.message, false); }
   });
   $('btnLoadModelPrices').addEventListener('click', async () => {
     try { await loadModelPrices(); } catch (e) { $('modelPriceStatus').textContent = '同步失败：' + e.message; flash(e.message, false); }
