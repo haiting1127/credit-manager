@@ -77,7 +77,9 @@ func (s *Store) Reserve(ctx context.Context, request ReserveRequest) (Reservatio
 
 	// Fail-closed: caller and key must both be active.
 	var callerEnabled int
-	if err := tx.QueryRowContext(ctx, `SELECT enabled FROM callers WHERE id = ?`, request.CallerID).Scan(&callerEnabled); err != nil {
+	var callerMaxConcurrent, callerRPM, callerTPM int64
+	if err := tx.QueryRowContext(ctx, `SELECT enabled, max_concurrent_requests, rpm_limit, tpm_limit
+		FROM callers WHERE id = ?`, request.CallerID).Scan(&callerEnabled, &callerMaxConcurrent, &callerRPM, &callerTPM); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Reservation{}, ErrCallerNotFound
 		}
@@ -126,6 +128,43 @@ func (s *Store) Reserve(ctx context.Context, request ReserveRequest) (Reservatio
 		}
 		if active >= maxConcurrent {
 			return Reservation{}, ErrConcurrentLimit
+		}
+	}
+	// Caller-level shared rate limits, aggregated across ALL keys of the caller.
+	// 0 = unlimited. All three use reservations as the request record:
+	//   concurrency — count currently held reservations of the caller;
+	//   RPM         — count reservations created in the trailing 60s;
+	//   TPM         — sum request_token_estimate over reservations created in
+	//                 the trailing 60s (conservative pre-settle accounting).
+	if callerMaxConcurrent > 0 {
+		var active int64
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM reservations
+			WHERE caller_id = ? AND status = 'held'`, request.CallerID).Scan(&active); err != nil {
+			return Reservation{}, fmt.Errorf("count caller active reservations: %w", err)
+		}
+		if active >= callerMaxConcurrent {
+			return Reservation{}, ErrCallerConcurrentLimit
+		}
+	}
+	minuteStart := now - 60_000
+	if callerRPM > 0 {
+		var count int64
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM reservations
+			WHERE caller_id = ? AND created_at_unix_ms >= ?`, request.CallerID, minuteStart).Scan(&count); err != nil {
+			return Reservation{}, fmt.Errorf("count caller minute requests: %w", err)
+		}
+		if count >= callerRPM {
+			return Reservation{}, ErrCallerRPMExceeded
+		}
+	}
+	if callerTPM > 0 {
+		var tokens int64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(request_token_estimate), 0) FROM reservations
+			WHERE caller_id = ? AND created_at_unix_ms >= ?`, request.CallerID, minuteStart).Scan(&tokens); err != nil {
+			return Reservation{}, fmt.Errorf("sum caller minute tokens: %w", err)
+		}
+		if tokens+request.RequestTokenEstimate > callerTPM {
+			return Reservation{}, ErrCallerTPMExceeded
 		}
 	}
 	for _, limit := range []struct {

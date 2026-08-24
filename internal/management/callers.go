@@ -14,10 +14,13 @@ import (
 
 func createCaller(ctx context.Context, svc *service.Service, body []byte) (pluginapi.ManagementResponse, error) {
 	var req struct {
-		ID            string `json:"id"`
-		DisplayName   string `json:"display_name"`
-		Enabled       *bool  `json:"enabled"`
-		QuotaMicroUSD *int64 `json:"quota_micro_usd"`
+		ID                   string `json:"id"`
+		DisplayName          string `json:"display_name"`
+		Enabled              *bool  `json:"enabled"`
+		QuotaMicroUSD        *int64 `json:"quota_micro_usd"`
+		MaxConcurrentRequests *int64 `json:"max_concurrent_requests"`
+		RPMLimit             *int64 `json:"rpm_limit"`
+		TPMLimit             *int64 `json:"tpm_limit"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return jsonErr(http.StatusBadRequest, "invalid json"), nil
@@ -26,13 +29,27 @@ func createCaller(ctx context.Context, svc *service.Service, body []byte) (plugi
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
-	// quota_micro_usd: 0 (default) = unlimited, matching key quota semantics.
+	// quota_micro_usd / max_concurrent_requests / rpm_limit / tpm_limit:
+	// 0 (default) = unlimited, matching key quota semantics.
 	quota := int64(0)
 	if req.QuotaMicroUSD != nil {
 		quota = *req.QuotaMicroUSD
 	}
+	maxConcurrent := int64(0)
+	if req.MaxConcurrentRequests != nil {
+		maxConcurrent = *req.MaxConcurrentRequests
+	}
+	rpm := int64(0)
+	if req.RPMLimit != nil {
+		rpm = *req.RPMLimit
+	}
+	tpm := int64(0)
+	if req.TPMLimit != nil {
+		tpm = *req.TPMLimit
+	}
 	caller, err := svc.Store().CreateCaller(ctx, store.CallerSpec{
 		ID: req.ID, DisplayName: req.DisplayName, QuotaMicroUSD: money.MicroUSD(quota), Enabled: enabled,
+		MaxConcurrentRequests: maxConcurrent, RPMLimit: rpm, TPMLimit: tpm,
 	})
 	if err != nil {
 		return jsonErr(http.StatusBadRequest, err.Error()), nil

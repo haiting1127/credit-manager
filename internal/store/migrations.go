@@ -267,6 +267,15 @@ var migrations = []migration{
 			END`,
 		},
 	},
+	{
+		version: 14,
+		name:    "caller level rate limits",
+		up: []string{
+			`ALTER TABLE callers ADD COLUMN max_concurrent_requests INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE callers ADD COLUMN rpm_limit INTEGER NOT NULL DEFAULT 0`,
+			`ALTER TABLE callers ADD COLUMN tpm_limit INTEGER NOT NULL DEFAULT 0`,
+		},
+	},
 }
 
 // Migrate applies every pending migration transactionally.

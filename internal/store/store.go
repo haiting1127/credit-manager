@@ -33,6 +33,9 @@ var (
 	ErrWeeklyQuotaExceeded  = errors.New("weekly quota exceeded")
 	ErrMonthlyQuotaExceeded = errors.New("monthly quota exceeded")
 	ErrCallerQuotaExceeded  = errors.New("caller quota exceeded")
+	ErrCallerConcurrentLimit = errors.New("caller maximum concurrent requests reached")
+	ErrCallerRPMExceeded    = errors.New("caller rpm limit exceeded")
+	ErrCallerTPMExceeded    = errors.New("caller tpm limit exceeded")
 	ErrConcurrentLimit      = errors.New("maximum concurrent requests reached")
 )
 

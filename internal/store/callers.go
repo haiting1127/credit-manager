@@ -18,8 +18,12 @@ type Caller struct {
 	SettledSpendMicroUSD money.MicroUSD
 	HeldAmountMicroUSD   money.MicroUSD
 	Enabled              bool
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
+	// Rate limits shared across all keys of this caller. 0 = unlimited.
+	MaxConcurrentRequests int64
+	RPMLimit              int64
+	TPMLimit              int64
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
 }
 
 func (c Caller) RemainingMicroUSD() money.MicroUSD {
@@ -32,6 +36,10 @@ type CallerSpec struct {
 	DisplayName   string
 	QuotaMicroUSD money.MicroUSD
 	Enabled       bool
+	// Rate limits shared across all keys of this caller. 0 = unlimited.
+	MaxConcurrentRequests int64
+	RPMLimit              int64
+	TPMLimit              int64
 }
 
 func (s *Store) CreateCaller(ctx context.Context, spec CallerSpec) (Caller, error) {
@@ -40,9 +48,11 @@ func (s *Store) CreateCaller(ctx context.Context, spec CallerSpec) (Caller, erro
 	}
 	now := nowUnixMilli()
 	_, err := s.db.ExecContext(ctx, `INSERT INTO callers(
-		id, display_name, quota_micro_usd, enabled, created_at_unix_ms, updated_at_unix_ms
-	) VALUES (?, ?, ?, ?, ?, ?)`,
-		spec.ID, spec.DisplayName, spec.QuotaMicroUSD, boolInt(spec.Enabled), now, now)
+		id, display_name, quota_micro_usd, enabled, created_at_unix_ms, updated_at_unix_ms,
+		max_concurrent_requests, rpm_limit, tpm_limit
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		spec.ID, spec.DisplayName, spec.QuotaMicroUSD, boolInt(spec.Enabled), now, now,
+		spec.MaxConcurrentRequests, spec.RPMLimit, spec.TPMLimit)
 	if err != nil {
 		return Caller{}, fmt.Errorf("create caller: %w", err)
 	}
@@ -51,7 +61,8 @@ func (s *Store) CreateCaller(ctx context.Context, spec CallerSpec) (Caller, erro
 
 func (s *Store) GetCaller(ctx context.Context, callerID string) (Caller, error) {
 	return scanCaller(s.db.QueryRowContext(ctx, `SELECT id, display_name, quota_micro_usd,
-		settled_spend_micro_usd, held_amount_micro_usd, enabled, created_at_unix_ms, updated_at_unix_ms
+		settled_spend_micro_usd, held_amount_micro_usd, enabled, created_at_unix_ms, updated_at_unix_ms,
+		max_concurrent_requests, rpm_limit, tpm_limit
 		FROM callers WHERE id = ?`, callerID))
 }
 
@@ -60,7 +71,8 @@ func (s *Store) ListCallers(ctx context.Context, limit int) ([]Caller, error) {
 		limit = 100
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id, display_name, quota_micro_usd,
-		settled_spend_micro_usd, held_amount_micro_usd, enabled, created_at_unix_ms, updated_at_unix_ms
+		settled_spend_micro_usd, held_amount_micro_usd, enabled, created_at_unix_ms, updated_at_unix_ms,
+		max_concurrent_requests, rpm_limit, tpm_limit
 		FROM callers ORDER BY created_at_unix_ms DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err

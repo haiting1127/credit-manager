@@ -22,7 +22,8 @@ func scanCaller(row rowScanner) (Caller, error) {
 	var quota, settled, held int64
 	var enabled int
 	var created, updated int64
-	if err := row.Scan(&caller.ID, &caller.DisplayName, &quota, &settled, &held, &enabled, &created, &updated); err != nil {
+	if err := row.Scan(&caller.ID, &caller.DisplayName, &quota, &settled, &held, &enabled, &created, &updated,
+		&caller.MaxConcurrentRequests, &caller.RPMLimit, &caller.TPMLimit); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Caller{}, ErrCallerNotFound
 		}
