@@ -69,6 +69,16 @@ func (s *Store) Settle(ctx context.Context, settlement Settlement) (Reservation,
 	if err := requireOneRow(result, ErrPluginKeyNotFound); err != nil {
 		return Reservation{}, err
 	}
+	// Mirror the settlement onto the caller ledger so caller-level shared quota
+	// tracks real spend across all keys of that caller.
+	if _, err := tx.ExecContext(ctx, `UPDATE callers SET
+		held_amount_micro_usd = CASE WHEN held_amount_micro_usd >= ? THEN held_amount_micro_usd - ? ELSE 0 END,
+		settled_spend_micro_usd = settled_spend_micro_usd + ?,
+		updated_at_unix_ms = ?
+		WHERE id = ?`,
+		reservation.HeldMicroUSD, reservation.HeldMicroUSD, settlement.CostMicroUSD, now, reservation.CallerID); err != nil {
+		return Reservation{}, fmt.Errorf("settle caller quota: %w", err)
+	}
 	result, err = tx.ExecContext(ctx, `UPDATE reservations SET status='settled', settled_micro_usd=?,
 		model=?, settlement_summary=?, settled_at_unix_ms=?, updated_at_unix_ms=? WHERE id=? AND status='held'`,
 		settlement.CostMicroUSD, settlement.Model, settlement.SettlementSummary, now, now, settlement.ReservationID)

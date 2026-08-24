@@ -10,11 +10,15 @@ import (
 
 func callerView(caller store.Caller) map[string]any {
 	return map[string]any{
-		"id":           caller.ID,
-		"display_name": caller.DisplayName,
-		"enabled":      caller.Enabled,
-		"created_at":   caller.CreatedAt,
-		"updated_at":   caller.UpdatedAt,
+		"id":                    caller.ID,
+		"display_name":          caller.DisplayName,
+		"enabled":               caller.Enabled,
+		"quota_micro_usd":       caller.QuotaMicroUSD,
+		"settled_spend_micro_usd": caller.SettledSpendMicroUSD,
+		"held_amount_micro_usd": caller.HeldAmountMicroUSD,
+		"remaining_micro_usd":   caller.RemainingMicroUSD(),
+		"created_at":            caller.CreatedAt,
+		"updated_at":            caller.UpdatedAt,
 	}
 }
 

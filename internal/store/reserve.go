@@ -148,8 +148,8 @@ func (s *Store) Reserve(ctx context.Context, request ReserveRequest) (Reservatio
 			return Reservation{}, limit.err
 		}
 	}
-	// Key quota is the only spend limit. Caller records are retained for
-	// ownership and historical attribution, but do not participate in accounting.
+	// Key quota is the primary spend limit; caller quota (when set) is an
+	// additional shared cap aggregated across ALL keys of that caller.
 	// quota_micro_usd NULL or 0 means unlimited.
 	result, err := tx.ExecContext(ctx, `UPDATE plugin_keys
 		SET held_amount_micro_usd = held_amount_micro_usd + ?, updated_at_unix_ms = ?
@@ -164,6 +164,30 @@ func (s *Store) Reserve(ctx context.Context, request ReserveRequest) (Reservatio
 		return Reservation{}, fmt.Errorf("hold key quota: %w", err)
 	}
 	if err := requireOneRow(result, ErrInsufficientQuota); err != nil {
+		return Reservation{}, err
+	}
+	// Caller quota: 0 means unlimited (default, matches historical behaviour).
+	// Fails closed when the caller's shared remaining quota cannot cover the hold.
+	result, err = tx.ExecContext(ctx, `UPDATE callers
+		SET held_amount_micro_usd = held_amount_micro_usd + ?, updated_at_unix_ms = ?
+		WHERE id = ? AND enabled = 1
+		AND (
+			quota_micro_usd = 0
+			OR quota_micro_usd - settled_spend_micro_usd - held_amount_micro_usd >= ?
+		)`,
+		request.AmountMicroUSD, now, request.CallerID, request.AmountMicroUSD)
+	if err != nil {
+		return Reservation{}, fmt.Errorf("hold caller quota: %w", err)
+	}
+	if err := requireOneRow(result, ErrCallerQuotaExceeded); err != nil {
+		// Caller cap hit: roll back the key hold so the key's ledger stays clean.
+		if _, rollbackErr := tx.ExecContext(ctx, `UPDATE plugin_keys
+			SET held_amount_micro_usd = CASE WHEN held_amount_micro_usd >= ? THEN held_amount_micro_usd - ? ELSE 0 END,
+			updated_at_unix_ms = ?
+			WHERE id = ?`,
+			request.AmountMicroUSD, request.AmountMicroUSD, now, request.PluginKeyID); rollbackErr != nil {
+			return Reservation{}, fmt.Errorf("release key hold after caller quota rejection: %w", rollbackErr)
+		}
 		return Reservation{}, err
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO reservations(
@@ -310,6 +334,13 @@ func (s *Store) Release(ctx context.Context, reservationID string, reason string
 	if err := requireOneRow(result, ErrPluginKeyNotFound); err != nil {
 		return Reservation{}, err
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE callers SET
+		held_amount_micro_usd = CASE WHEN held_amount_micro_usd >= ? THEN held_amount_micro_usd - ? ELSE 0 END,
+		updated_at_unix_ms = ?
+		WHERE id = ?`,
+		reservation.HeldMicroUSD, reservation.HeldMicroUSD, now, reservation.CallerID); err != nil {
+		return Reservation{}, fmt.Errorf("release caller hold: %w", err)
+	}
 	summary := reason
 	result, err = tx.ExecContext(ctx, `UPDATE reservations SET status='released', released_at_unix_ms=?,
 		settlement_summary=?, updated_at_unix_ms=? WHERE id=? AND status='held'`, now, summary, now, reservationID)
@@ -365,6 +396,11 @@ func (s *Store) ReleaseStaleReservations(ctx context.Context, olderThan time.Tim
 			held_amount_micro_usd = CASE WHEN held_amount_micro_usd >= ? THEN held_amount_micro_usd - ? ELSE 0 END,
 			updated_at_unix_ms = ? WHERE id = ?`, reservation.HeldMicroUSD, reservation.HeldMicroUSD, now, reservation.PluginKeyID); err != nil {
 			return 0, fmt.Errorf("release stale key hold: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE callers SET
+			held_amount_micro_usd = CASE WHEN held_amount_micro_usd >= ? THEN held_amount_micro_usd - ? ELSE 0 END,
+			updated_at_unix_ms = ? WHERE id = ?`, reservation.HeldMicroUSD, reservation.HeldMicroUSD, now, reservation.CallerID); err != nil {
+			return 0, fmt.Errorf("release stale caller hold: %w", err)
 		}
 		result, err := tx.ExecContext(ctx, `UPDATE reservations SET status = 'released', released_at_unix_ms = ?,
 			settlement_summary = 'stale_timeout', updated_at_unix_ms = ? WHERE id = ? AND status = 'held'`, now, now, id)

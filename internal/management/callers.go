@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/yuluo688/credit-manager/internal/money"
 	"github.com/yuluo688/credit-manager/internal/service"
 	"github.com/yuluo688/credit-manager/internal/store"
 
@@ -13,9 +14,10 @@ import (
 
 func createCaller(ctx context.Context, svc *service.Service, body []byte) (pluginapi.ManagementResponse, error) {
 	var req struct {
-		ID          string `json:"id"`
-		DisplayName string `json:"display_name"`
-		Enabled     *bool  `json:"enabled"`
+		ID            string `json:"id"`
+		DisplayName   string `json:"display_name"`
+		Enabled       *bool  `json:"enabled"`
+		QuotaMicroUSD *int64 `json:"quota_micro_usd"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return jsonErr(http.StatusBadRequest, "invalid json"), nil
@@ -24,8 +26,13 @@ func createCaller(ctx context.Context, svc *service.Service, body []byte) (plugi
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	// quota_micro_usd: 0 (default) = unlimited, matching key quota semantics.
+	quota := int64(0)
+	if req.QuotaMicroUSD != nil {
+		quota = *req.QuotaMicroUSD
+	}
 	caller, err := svc.Store().CreateCaller(ctx, store.CallerSpec{
-		ID: req.ID, DisplayName: req.DisplayName, QuotaMicroUSD: 0, Enabled: enabled,
+		ID: req.ID, DisplayName: req.DisplayName, QuotaMicroUSD: money.MicroUSD(quota), Enabled: enabled,
 	})
 	if err != nil {
 		return jsonErr(http.StatusBadRequest, err.Error()), nil
